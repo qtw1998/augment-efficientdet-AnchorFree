@@ -1,4 +1,4 @@
-# aug-efficientdet**
+**# aug-efficientdet**
 
 > Architecture is Forked from [zylo117](https://github.com/zylo117/Yet-Another-EfficientDet-Pytorch) 
 
@@ -20,13 +20,17 @@
 
 - [ ] Overhaul Efficientdet codes in Pytorch 
 
+## Mosaic Methods
+
+![Mosaic for BDD100K.jpg](https://site-pictures.oss-eu-west-1.aliyuncs.com/y2wpc.jpg)
+
 ## Results on TensorFlow official version:
 
 ![image-20200518225201539](https://site-pictures.oss-eu-west-1.aliyuncs.com/0t897.png)
 
-![image-20200518225251433](https://site-pictures.oss-eu-west-1.aliyuncs.com/1u2of.jpg)
+![image-20200518225251433](../../../Library/Application Support/typora-user-images/image-20200518225251433.png)
 
-![image-20200518225319504](https://site-pictures.oss-eu-west-1.aliyuncs.com/ipa2v.jpg)
+![image-20200518225319504](../../../Library/Application Support/typora-user-images/image-20200518225319504.png)
 
-![image-20200518225452006](https://site-pictures.oss-eu-west-1.aliyuncs.com/dad7z.jpg)
+![image-20200518225452006](../../../Library/Application Support/typora-user-images/image-20200518225452006.png)
 
