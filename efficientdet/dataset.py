@@ -9,7 +9,7 @@ from pathlib import Path
 from tqdm import tqdm
 img_formats = ['.bmp', '.jpg', '.jpeg', '.png', '.tif', '.dng']
 
-class CocoDataset(Dataset):
+class LoadImgsAnnots(Dataset):
     def __init__(self, path, root_dir, set='train2017', transform=None, augment=True):
         
         path = str(Path(path))  # os-agnostic
