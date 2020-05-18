@@ -92,7 +92,7 @@ def postprocess(x, anchors, regression, classification, regressBoxes, clipBoxes,
     transformed_anchors = regressBoxes(anchors, regression)
     transformed_anchors = clipBoxes(transformed_anchors, x)
     scores = torch.max(classification, dim=2, keepdim=True)[0]
-    scores_over_thresh = (scores > threshold)[:, :, 1]
+    scores_over_thresh = (scores > threshold)[:, :, -1] # change to the final column
     out = []
     for i in range(x.shape[0]):
         if scores_over_thresh[i].sum() == 0:
