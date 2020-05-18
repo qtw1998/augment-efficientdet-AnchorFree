@@ -3,6 +3,7 @@
 """
 Simple Inference Script of EfficientDet-Pytorch
 """
+
 import time
 import torch
 from torch.backends import cudnn
@@ -15,9 +16,27 @@ import numpy as np
 from efficientdet.utils import BBoxTransform, ClipBoxes
 from utils.utils import preprocess, invert_affine, postprocess, STANDARD_COLORS, standard_to_bgr, get_index_label, plot_one_box
 
-compound_coef = 0
+
+import sys
+class Logger(object):
+    def __init__(self, filename='default.log', stream=sys.stdout):
+        self.terminal = stream
+        self.log = open(filename, 'w')
+ 
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+ 
+    def flush(self):
+        pass
+   
+
+sys.stdout = Logger('a.log', sys.stdout)
+sys.stderr = Logger('a.log_file', sys.stderr)
+
+compound_coef = 1
 force_input_size = 1280  # set None to use default size
-img_path = 'test/img.png'
+img_path = '/cluster/home/qiaotianwei/code/EfficientDet.Pytorch/data/bdd100k/images/100k/train/a7159126-3e14c391.jpg'
 
 # replace this part with your project's anchor config
 anchor_ratios = [(1.0, 1.0), (1.4, 0.7), (0.7, 1.4)]
@@ -49,7 +68,7 @@ x = x.to(torch.float32 if not use_float16 else torch.float16).permute(0, 3, 1, 2
 
 model = EfficientDetBackbone(compound_coef=compound_coef, num_classes=len(obj_list),
                              ratios=anchor_ratios, scales=anchor_scales)
-model.load_state_dict(torch.load(f'firstThinking/bdd100k/efficientdet-d1_12_14500.pth'))
+model.load_state_dict(torch.load(f'firstThinking/bdd100k/efficientdet-d1_40_45500.pth'))
 model.requires_grad_(False)
 model.eval()
 
