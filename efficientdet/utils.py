@@ -21,11 +21,11 @@ class BBoxTransform(nn.Module):
         ha = anchors[..., 2] - anchors[..., 0]
         wa = anchors[..., 3] - anchors[..., 1]
 
-        w = regression[..., 3].exp() * wa
-        h = regression[..., 2].exp() * ha
+        w = regression[..., 4].exp() * wa
+        h = regression[..., 3].exp() * ha
 
-        y_centers = regression[..., 0] * ha + y_centers_a
-        x_centers = regression[..., 1] * wa + x_centers_a
+        y_centers = regression[..., 1] * ha + y_centers_a
+        x_centers = regression[..., 2] * wa + x_centers_a
 
         ymin = y_centers - h / 2.
         xmin = x_centers - w / 2.
@@ -33,6 +33,7 @@ class BBoxTransform(nn.Module):
         xmax = x_centers + w / 2.
 
         return torch.stack([xmin, ymin, xmax, ymax], dim=2)
+
 
 
 class ClipBoxes(nn.Module):

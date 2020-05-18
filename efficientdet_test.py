@@ -75,7 +75,7 @@ def display(preds, imgs, imshow=True, imwrite=False):
             continue
 
         for j in range(len(preds[i]['rois'])):
-            x1, y1, x2, y2 = preds[i]['rois'][j + 1].astype(np.int)
+            x1, y1, x2, y2 = preds[i]['rois'][j].astype(np.int)
             obj = obj_list[preds[i]['class_ids'][j]]
             score = float(preds[i]['scores'][j])
             plot_one_box(imgs[i], [x1, y1, x2, y2], label=obj,score=score,color=color_list[get_index_label(obj, obj_list)])
