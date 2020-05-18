@@ -1,6 +1,7 @@
 # original author: signatrix
 # adapted from https://github.com/signatrix/efficientdet/blob/master/train.py
-# modified by Zylo117
+# adapted from https://github.com/zylo117/Yet-Another-EfficientDet-Pytorch
+# modified by Daivd Qiao
 
 import datetime
 import os
@@ -53,7 +54,7 @@ def get_args():
                         help='Early stopping\'s parameter: number of epochs with no improvement after which training will be stopped. Set to 0 to disable this technique.')
     parser.add_argument('--data_path', type=str, default='datasets/', help='the root folder of dataset')
     parser.add_argument('--log_path', type=str, default='logs/')
-    parser.add_argument('-w', '--load_weights', type=str, default='firstThinking/bdd100k/efficientdet-d1_12_14500.pth',
+    parser.add_argument('-w', '--load_weights', type=str, default='firstThinking/bdd100k/efficientdet-d1_38_43914.pth',
                         help='whether to load weights from a checkpoint, set None to initialize, set \'last\' to load last checkpoint')
     parser.add_argument('--saved_path', type=str, default='firstThinking/')
     parser.add_argument('--debug', type=boolean_string, default=False, help='whether visualize the predicted boxes of trainging, '
@@ -195,7 +196,7 @@ def train(opt):
     else:
         optimizer = torch.optim.SGD(model.parameters(), opt.lr, momentum=0.9, nesterov=True)
 
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, verbose=True)
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [40, 50, 70], gamma=0.1, last_epoch=-1)
 
     epoch = 0
     best_loss = 1e5
@@ -243,12 +244,11 @@ def train(opt):
                     epoch_loss.append(float(loss))
 
                     progress_bar.set_description(
-                        'Step: {}. Epoch: {}/{}. Iteration: {}/{}. Cls loss: {:.5f}. Reg loss: {:.5f}. Total loss: {:.5f}'.format(
-                            step, epoch, opt.num_epochs, iter + 1, num_iter_per_epoch, cls_loss.item(),
-                            reg_loss.item(), loss.item()))
-                    writer.add_scalars('Loss', {'train': loss}, step)
-                    writer.add_scalars('Regression_loss', {'train': reg_loss}, step)
-                    writer.add_scalars('Classfication_loss', {'train': cls_loss}, step)
+                        'Epoch: {}/{}. Cls loss: {:.5f}. Reg loss: {:.5f}. Total loss: {:.5f}'.format(
+                            epoch, opt.num_epochs, cls_loss.item(), reg_loss.item(), loss.item()))
+                    writer.add_scalars('Loss/Sum Of Loss', {'train': loss}, step)
+                    writer.add_scalars('Loss/Regression_loss', {'train': reg_loss}, step)
+                    writer.add_scalars('Loss/Classfication_loss', {'train': cls_loss}, step)
 
                     # log learning_rate
                     current_lr = optimizer.param_groups[0]['lr']
@@ -264,55 +264,55 @@ def train(opt):
                     print('[Error]', traceback.format_exc())
                     print(e)
                     continue
-            scheduler.step(np.mean(epoch_loss))
+            scheduler.step()
 
-            if epoch % opt.val_interval == 0:
-                model.eval()
-                loss_regression_ls = []
-                loss_classification_ls = []
-                for iter, data in enumerate(val_generator):
-                    with torch.no_grad():
-                        imgs = data['img']
-                        annot = data['annot']
+            # if epoch % opt.val_interval == 0:
+            #     model.eval()
+            #     loss_regression_ls = []
+            #     loss_classification_ls = []
+            #     for iter, data in enumerate(val_generator):
+            #         with torch.no_grad():
+            #             imgs = data['img']
+            #             annot = data['annot']
 
-                        if params.num_gpus == 1:
-                            imgs = imgs.cuda()
-                            annot = annot.cuda()
+            #             if params.num_gpus == 1:
+            #                 imgs = imgs.cuda()
+            #                 annot = annot.cuda()
 
-                        cls_loss, reg_loss = model(imgs, annot, obj_list=params.obj_list)
-                        cls_loss = cls_loss.mean()
-                        reg_loss = reg_loss.mean()
+            #             cls_loss, reg_loss = model(imgs, annot, obj_list=params.obj_list)
+            #             cls_loss = cls_loss.mean()
+            #             reg_loss = reg_loss.mean()
 
-                        loss = cls_loss + reg_loss
-                        if loss == 0 or not torch.isfinite(loss):
-                            continue
+            #             loss = cls_loss + reg_loss
+            #             if loss == 0 or not torch.isfinite(loss):
+            #                 continue
 
-                        loss_classification_ls.append(cls_loss.item())
-                        loss_regression_ls.append(reg_loss.item())
+            #             loss_classification_ls.append(cls_loss.item())
+            #             loss_regression_ls.append(reg_loss.item())
 
-                cls_loss = np.mean(loss_classification_ls)
-                reg_loss = np.mean(loss_regression_ls)
-                loss = cls_loss + reg_loss
+            #     cls_loss = np.mean(loss_classification_ls)
+            #     reg_loss = np.mean(loss_regression_ls)
+            #     loss = cls_loss + reg_loss
 
-                print(
-                    'Val. Epoch: {}/{}. Classification loss: {:1.5f}. Regression loss: {:1.5f}. Total loss: {:1.5f}'.format(
-                        epoch, opt.num_epochs, cls_loss, reg_loss, loss))
-                writer.add_scalars('Loss', {'val': loss}, step)
-                writer.add_scalars('Regression_loss', {'val': reg_loss}, step)
-                writer.add_scalars('Classfication_loss', {'val': cls_loss}, step)
+            #     print(
+            #         'Val. Epoch: {}/{}. Classification loss: {:1.5f}. Regression loss: {:1.5f}. Total loss: {:1.5f}'.format(
+            #             epoch, opt.num_epochs, cls_loss, reg_loss, loss))
+            #     writer.add_scalars('Loss', {'val': loss}, step)
+            #     writer.add_scalars('Regression_loss', {'val': reg_loss}, step)
+            #     writer.add_scalars('Classfication_loss', {'val': cls_loss}, step)
 
-                if loss + opt.es_min_delta < best_loss:
-                    best_loss = loss
-                    best_epoch = epoch
+            #     if loss + opt.es_min_delta < best_loss:
+            #         best_loss = loss
+            #         best_epoch = epoch
 
-                    save_checkpoint(model, f'efficientdet-d{opt.compound_coef}_{epoch}_{step}.pth')
+            #         save_checkpoint(model, f'efficientdet-d{opt.compound_coef}_{epoch}_{step}.pth')
 
-                model.train()
+            #     model.train()
                            
-                # Early stopping
-                if epoch - best_epoch > opt.es_patience > 0:
-                    print('[Info] Stop training at epoch {}. The lowest loss achieved is {}'.format(epoch, best_loss))
-                    break
+            #     # Early stopping
+            #     if epoch - best_epoch > opt.es_patience > 0:
+            #         print('[Info] Stop training at epoch {}. The lowest loss achieved is {}'.format(epoch, best_loss))
+            #         break
     except KeyboardInterrupt:
         save_checkpoint(model, f'efficientdet-d{opt.compound_coef}_{epoch}_{step}.pth')
         writer.close()
