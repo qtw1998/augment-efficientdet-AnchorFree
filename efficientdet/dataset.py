@@ -8,7 +8,24 @@ import cv2
 from pathlib import Path
 from tqdm import tqdm
 img_formats = ['.bmp', '.jpg', '.jpeg', '.png', '.tif', '.dng']
-
+hyp = {'giou': 3.54,  # giou loss gain
+       'cls': 37.4,  # cls loss gain
+       'cls_pw': 1.0,  # cls BCELoss positive_weight
+       'obj': 64.3,  # obj loss gain (*=img_size/320 if img_size != 320)
+       'obj_pw': 1.0,  # obj BCELoss positive_weight
+       'iou_t': 0.225,  # iou training threshold
+       'lr0': 0.01,  # initial learning rate (SGD=5E-3, Adam=5E-4)
+       'lrf': 0.0005,  # final learning rate (with cos scheduler)
+       'momentum': 0.937,  # SGD momentum
+       'weight_decay': 0.000484,  # optimizer weight decay
+       'fl_gamma': 0.0,  # focal loss gamma (efficientDet default is gamma=1.5)
+       'hsv_h': 0.0138,  # image HSV-Hue augmentation (fraction)
+       'hsv_s': 0.678,  # image HSV-Saturation augmentation (fraction)
+       'hsv_v': 0.36,  # image HSV-Value augmentation (fraction)
+       'degrees': 1.98 * 0,  # image rotation (+/- deg)
+       'translate': 0.05 * 0,  # image translation (+/- fraction)
+       'scale': 0.05 * 0,  # image scale (+/- gain)
+       'shear': 0.641 * 0}  # image shear (+/- deg)
 class LoadImgsAnnots(Dataset):
     def __init__(self, path, root_dir, set='train2017', transform=None, augment=True):
         
@@ -23,8 +40,8 @@ class LoadImgsAnnots(Dataset):
         self.set_name = set
         self.transform = transform
         self.cache_labels = True
-        self.coco = COCO(os.path.join(self.root_dir, 'annotations', 'instances_' + self.set_name + '.json'))
-        self.image_ids = self.coco.getImgIds()
+        # self.coco = COCO(os.path.join(self.root_dir, 'annotations', 'instances_' + self.set_name + '.json'))
+        # self.image_ids = self.coco.getImgIds()
         # self.augment = augment
         # self.hyp = hyp
         # self.mosaic = self.augment 
@@ -74,10 +91,11 @@ class LoadImgsAnnots(Dataset):
         return len(self.img_files)
 
     def __getitem__(self, idx):
-        if np.random.rand() < 0.5:
+        if not isSmallObjection(self, idx):
             img, annot = load_mosaic(self, idx)
         else:
             img, h, w = load_image(self, idx)
+            augment_hsv(img, hgain=hyp['hsv_h'], sgain=hyp['hsv_s'], vgain=hyp['hsv_v'])
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             img = img.astype(np.float32) / 255.
 
@@ -92,7 +110,8 @@ class LoadImgsAnnots(Dataset):
                 labels[:, 4] = h * (annotations[:, 2] + annotations[:, 4] / 2)
             annot = np.append(annot, labels, axis = 0)
             del labels
-            
+        
+        
         # img = img.numpy()
 
         # img = img.astype(np.float32) * 255.
@@ -104,13 +123,13 @@ class LoadImgsAnnots(Dataset):
         if self.transform:
             sample = self.transform(sample)
 
-        # img = sample['img']
-        # img = img.numpy()
-        # img = img.astype(np.float32) * 255.
-        # annot = sample['annot']
-        # for i in range(len(annot)):
-        #     cv2.rectangle(img, (int(annot[i, 1]), int(annot[i, 2])), (int(annot[i, 3]), int(annot[i, 4])), (255, 255, 255), thickness=2)
-        # img = cv2.imwrite('get.jpg', img)
+        img = sample['img']
+        img = img.numpy()
+        img = img.astype(np.float32) * 255.
+        annot = sample['annot']
+        for i in range(len(annot)):
+            cv2.rectangle(img, (int(annot[i, 1]), int(annot[i, 2])), (int(annot[i, 3]), int(annot[i, 4])), (255, 255, 255), thickness=2)
+        img = cv2.imwrite('get2.jpg', img)
 
         return sample
 
@@ -150,34 +169,41 @@ def load_mosaic(self, index):
 
     labels4 = []
 
-    indices = [index] + [random.randint(0, len(self.labels) - 1) for _ in range(3)]  # 3 additional image indices
+    indices = [index] + [random.randint(0, len(self.labels) - 1) for _ in range(5)]  # 3 additional image indices
     annotations4 = np.zeros((0, 5))
     for i, index in enumerate(indices):
         # Load image
         img, h, w = load_image(self, index)
 
         xc = w
-        yc = h
+        yc = 1.5 * h
         if i == 0:
-            img4 = np.full((h * 2, w * 2, img.shape[2]), 114, dtype=np.uint8)
-            x1a, y1a, x2a, y2a = max(xc - w, 0), max(yc - h, 0), xc, yc
+            img6 = np.full((h * 3, w * 2, img.shape[2]), 114, dtype=np.uint8)
+            x1a, y1a, x2a, y2a = max(xc - w, 0), max(yc - 1.5 * h, 0), xc, yc - 0.5 * h
             x1b, y1b, x2b, y2b = w - (x2a - x1a), h - (y2a - y1a), w, h
         elif i == 1:
-            x1a, y1a, x2a, y2a = xc, max(yc - h, 0), min(xc + w, w * 2), yc
+            x1a, y1a, x2a, y2a = xc, max(yc - 1.5 * h, 0), min(xc + w, w * 2), yc - 0.5 * h
             x1b, y1b, x2b, y2b = 0, h - (y2a - y1a), min(w, x2a - x1a), h
         elif i == 2:
-            x1a, y1a, x2a, y2a = max(xc - w, 0), yc, xc, min(h * 2, yc + h)
+            x1a, y1a, x2a, y2a = max(xc - w, 0), yc - 0.5 * h, xc, min(h * 3, yc + 0.5 * h)
             x1b, y1b, x2b, y2b = w - (x2a - x1a), 0, max(xc, w), min(y2a - y1a, h)
         elif i == 3:
-            x1a, y1a, x2a, y2a = xc, yc, min(xc + w, w * 2), min(h * 2, yc + h)
+            x1a, y1a, x2a, y2a = xc, yc - 0.5 * h, min(xc + w, w * 2), min(h * 3, yc + 0.5 * h)
             x1b, y1b, x2b, y2b = 0, 0, min(w, x2a - x1a), min(y2a - y1a, h)
-      
-        img4[y1a:y2a, x1a:x2a] = img[y1b:y2b, x1b:x2b]  # img4[ymin:ymax, xmin:xmax]
-        img4 = cv2.cvtColor(img4, cv2.COLOR_BGR2RGB)
+        elif i == 4:
+            x1a, y1a, x2a, y2a = max(xc - w, 0), min(yc + 0.5 * h, h * 3), xc, min(yc + 1.5 * h, h * 3)
+            x1b, y1b, x2b, y2b = 0, h - (y2a - y1a), min(w, x2a - x1a), min(y2a - y1a, h)
+        elif i == 5:
+            x1a, y1a, x2a, y2a = xc, min(yc + 0.5 * h, h * 3), min(xc + w, w * 2), min(yc + 1.5 * h, h * 3)
+            x1b, y1b, x2b, y2b = 0, h - (y2a - y1a), min(w, x2a - x1a), min(y2a - y1a, h)
+        # print(y1a, y2a, x1a, x2a, y1b, y2b, x1b, x2b)
+        img6[int(y1a):int(y2a), int(x1a):int(x2a)] = img[int(y1b):int(y2b), int(x1b):int(x2b)]  # img6[ymin:ymax, xmin:xmax]
+        augment_hsv(img6, hgain=hyp['hsv_h'], sgain=hyp['hsv_s'], vgain=hyp['hsv_v'])
+        img6 = cv2.cvtColor(img6, cv2.COLOR_BGR2RGB)
 
         padw = x1a - x1b
         padh = y1a - y1b
-        cv2.imwrite('mosaic.jpg', img4)
+        cv2.imwrite('mosaic.jpg', img6)
         
         annotations = self.labels[index]
         if annotations.size > 0:
@@ -192,8 +218,8 @@ def load_mosaic(self, index):
         
         annotations4 = np.append(annotations4, labels, axis = 0)
         del labels
-
-    return img4.astype(np.float32) / 255., annotations4
+    
+    return img6.astype(np.float32) / 255., annotations4
 
 class Resizer(object):
     """Convert ndarrays in sample to Tensors."""
@@ -257,7 +283,7 @@ class Augmenter(object):
 
 
 class Normalizer(object):
-
+    
     def __init__(self, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
         self.mean = np.array([[mean]])
         self.std = np.array([[std]])
@@ -266,3 +292,19 @@ class Normalizer(object):
         image, annots = sample['img'], sample['annot']
 
         return {'img': ((image.astype(np.float32) - self.mean) / self.std), 'annot': annots}
+
+def augment_hsv(img, hgain=0.5, sgain=0.5, vgain=0.5):
+    x = np.random.uniform(-1, 1, 3) * [hgain, sgain, vgain] + 1  # random gains
+    img_hsv = (cv2.cvtColor(img, cv2.COLOR_BGR2HSV) * x).clip(None, 255).astype(np.uint8)
+    np.clip(img_hsv[:, :, 0], None, 179, out=img_hsv[:, :, 0])  # inplace hue clip (0 - 179 deg)
+    cv2.cvtColor(img_hsv, cv2.COLOR_HSV2BGR, dst=img)  # no return needed
+
+
+def isSmallObjection(self, idx):
+    annotations = self.labels[idx]
+    if annotations.size > 0:
+        # Normalized xywh to pixel xyxy format
+        labels = np.array(annotations)
+        area = np.array([1280 * labels[i, 2] * 720 * labels[i, 3] for i in range(len(labels))])
+        if(len(area[area < 1500]) / len(labels)) > 0.3:
+            return True
