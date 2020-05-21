@@ -26,7 +26,7 @@ hyp = {'giou': 3.54,  # giou loss gain
        'translate': 0.05 * 0,  # image translation (+/- fraction)
        'scale': 0.05 * 0,  # image scale (+/- gain)
        'shear': 0.641 * 0}  # image shear (+/- deg)
-class LoadImgsAnnots(Dataset):
+class CocoDataset(Dataset):
     def __init__(self, path, root_dir, set='train2017', transform=None, augment=True):
         
         path = str(Path(path))  # os-agnostic
@@ -52,8 +52,6 @@ class LoadImgsAnnots(Dataset):
         self.labels = [None] * n
         if self.cache_labels:  # cache labels for faster training
             # self.labels = [] # annotations = np.zeros((0, 5))
-            extract_bounding_boxes = False
-            create_datasubset = False
             pbar = tqdm(self.label_files, desc='Caching labels')
             nm, nf, ne, ns, nd = 0, 0, 0, 0, 0  # number missing, found, empty, datasubset, duplicate
             for i, file in enumerate(pbar):
@@ -95,7 +93,8 @@ class LoadImgsAnnots(Dataset):
             img, annot = load_mosaic(self, idx)
         else:
             img, h, w = load_image(self, idx)
-            augment_hsv(img, hgain=hyp['hsv_h'], sgain=hyp['hsv_s'], vgain=hyp['hsv_v'])
+            if np.random.rand() < 0.3:
+                augment_hsv(img, hgain=hyp['hsv_h'], sgain=hyp['hsv_s'], vgain=hyp['hsv_v'])
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             img = img.astype(np.float32) / 255.
 
@@ -123,13 +122,13 @@ class LoadImgsAnnots(Dataset):
         if self.transform:
             sample = self.transform(sample)
 
-        img = sample['img']
-        img = img.numpy()
-        img = img.astype(np.float32) * 255.
-        annot = sample['annot']
-        for i in range(len(annot)):
-            cv2.rectangle(img, (int(annot[i, 1]), int(annot[i, 2])), (int(annot[i, 3]), int(annot[i, 4])), (255, 255, 255), thickness=2)
-        img = cv2.imwrite('get2.jpg', img)
+        # img = sample['img']
+        # img = img.numpy()
+        # img = img.astype(np.float32) * 255.
+        # annot = sample['annot']
+        # for i in range(len(annot)):
+        #     cv2.rectangle(img, (int(annot[i, 1]), int(annot[i, 2])), (int(annot[i, 3]), int(annot[i, 4])), (255, 255, 255), thickness=2)
+        # img = cv2.imwrite('get2.jpg', img)
 
         return sample
 
@@ -198,7 +197,8 @@ def load_mosaic(self, index):
             x1b, y1b, x2b, y2b = 0, h - (y2a - y1a), min(w, x2a - x1a), min(y2a - y1a, h)
         # print(y1a, y2a, x1a, x2a, y1b, y2b, x1b, x2b)
         img6[int(y1a):int(y2a), int(x1a):int(x2a)] = img[int(y1b):int(y2b), int(x1b):int(x2b)]  # img6[ymin:ymax, xmin:xmax]
-        augment_hsv(img6, hgain=hyp['hsv_h'], sgain=hyp['hsv_s'], vgain=hyp['hsv_v'])
+        if np.random.rand() < 0.3:
+            augment_hsv(img6, hgain=hyp['hsv_h'], sgain=hyp['hsv_s'], vgain=hyp['hsv_v'])
         img6 = cv2.cvtColor(img6, cv2.COLOR_BGR2RGB)
 
         padw = x1a - x1b
