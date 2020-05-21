@@ -90,7 +90,6 @@ class Anchors(nn.Module):
           ValueError: input size must be the multiple of largest feature stride.
         """
         image_shape = image.shape[2:]
-
         if image_shape == self.last_shape and image.device in self.last_anchors:
             return self.last_anchors[image.device]
 
@@ -105,13 +104,21 @@ class Anchors(nn.Module):
         boxes_all = []
         for stride in self.strides:
             boxes_level = []
-            for scale, ratio in itertools.product(self.scales, self.ratios):
-                if image_shape[1] % stride != 0:
-                    raise ValueError('input size must be divided by the stride.')
-                base_anchor_size = self.anchor_scale * stride * scale
-                anchor_size_x_2 = base_anchor_size * ratio[0] / 2.0
-                anchor_size_y_2 = base_anchor_size * ratio[1] / 2.0
-
+            base_anchor_size = self.anchor_scale * stride
+            kmeans_anchors = [[0.0144776 , 0.01456146],
+                                [0.19533084, 0.13235924],
+                                [0.12514008, 0.08260435],
+                                [0.39945756, 0.34125039],
+                                [0.07178172, 0.05034424],
+                                [0.03300383, 0.03506833],
+                                [0.18293396, 0.26125624],
+                                [0.05921508, 0.12516609],
+                                [0.30023306, 0.20126344]]
+    
+            for als in kmeans_anchors: # als: anchor_linear_scale
+                anchor_size_x_2 = base_anchor_size * als[0] / 2.0
+                anchor_size_y_2 = base_anchor_size * als[1] / 2.0
+                # print("x:", x, "y:", y)
                 x = np.arange(stride / 2, image_shape[1], stride)
                 y = np.arange(stride / 2, image_shape[0], stride)
                 xv, yv = np.meshgrid(x, y)
@@ -126,9 +133,12 @@ class Anchors(nn.Module):
             # concat anchors on the same level to the reshape NxAx4
             boxes_level = np.concatenate(boxes_level, axis=1)
             boxes_all.append(boxes_level.reshape([-1, 4]))
+            # print("boxes_all:", boxes_all)
 
         anchor_boxes = np.vstack(boxes_all)
-
+        
+        # np.savetxt("anchors.txt", anchor_boxes)
+        
         anchor_boxes = torch.from_numpy(anchor_boxes.astype(dtype)).to(image.device)
         anchor_boxes = anchor_boxes.unsqueeze(0)
 
