@@ -18,6 +18,8 @@
 
     `efficientdet_test.py`
 
+- [ ] Add CIOU LOSS & Adaptive class-wise Loss Function
+
 - [ ] Overhaul Efficientdet codes in Pytorch 
 
 ## Mosaic Methods
