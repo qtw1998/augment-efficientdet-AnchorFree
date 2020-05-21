@@ -65,8 +65,8 @@ class Anchors(nn.Module):
             self.pyramid_levels = [3, 4, 5, 6, 7]
 
         self.strides = kwargs.get('strides', [2 ** x for x in self.pyramid_levels])
-        self.scales = np.array(kwargs.get('scales', [2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)]))
-        self.ratios = kwargs.get('ratios', [(1.0, 1.0), (1.4, 0.7), (0.7, 1.4)])
+        # self.scales = np.array(kwargs.get('scales', [2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)]))
+        # self.ratios = kwargs.get('ratios', [(1.0, 1.0), (1.4, 0.7), (0.7, 1.4)])
 
         self.last_anchors = {}
         self.last_shape = None
@@ -138,7 +138,7 @@ class Anchors(nn.Module):
         anchor_boxes = np.vstack(boxes_all)
         
         # np.savetxt("anchors.txt", anchor_boxes)
-        
+
         anchor_boxes = torch.from_numpy(anchor_boxes.astype(dtype)).to(image.device)
         anchor_boxes = anchor_boxes.unsqueeze(0)
 
