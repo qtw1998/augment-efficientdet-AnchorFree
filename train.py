@@ -1,7 +1,6 @@
 # original author: signatrix
 # adapted from https://github.com/signatrix/efficientdet/blob/master/train.py
-# adapted from https://github.com/zylo117/Yet-Another-EfficientDet-Pytorch
-# modified by Daivd Qiao
+# modified by Zylo117 & David Qiao
 
 import datetime
 import os
@@ -13,7 +12,7 @@ import yaml
 from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from efficientdet.dataset import LoadImgsAnnots, Resizer, Normalizer, Augmenter, collater
+from efficientdet.dataset import CocoDataset, Resizer, Normalizer, Augmenter, collater
 from backbone import EfficientDetBackbone
 from tensorboardX import SummaryWriter
 import numpy as np
@@ -37,7 +36,7 @@ def get_args():
     parser.add_argument('-p', '--project', type=str, default='bdd100k', help='project file that contains parameters')
     parser.add_argument('-c', '--compound_coef', type=int, default=1, help='coefficients of efficientdet')
     parser.add_argument('-n', '--num_workers', type=int, default=12, help='num_workers of dataloader')
-    parser.add_argument('--batch_size', type=int, default=62, help='The number of images per batch among all devices')
+    parser.add_argument('--batch_size', type=int, default=20, help='The number of images per batch among all devices')
     parser.add_argument('--head_only', type=boolean_string, default=False,
                         help='whether finetunes only the regressor and the classifier, '
                              'useful in early stage convergence or small/easy dataset')
@@ -53,10 +52,10 @@ def get_args():
     parser.add_argument('--es_patience', type=int, default=0,
                         help='Early stopping\'s parameter: number of epochs with no improvement after which training will be stopped. Set to 0 to disable this technique.')
     parser.add_argument('--data_path', type=str, default='datasets/', help='the root folder of dataset')
-    parser.add_argument('--log_path', type=str, default='logs/')
-    parser.add_argument('-w', '--load_weights', type=str, default='firstThinking/bdd100k/efficientdet-d1_38_43914.pth',
+    parser.add_argument('--log_path', type=str, default='second-loss/logs/')
+    parser.add_argument('-w', '--load_weights', type=str, default=None, # 'firstThinking/bdd100k/efficientdet-d1_37_42788.pth',
                         help='whether to load weights from a checkpoint, set None to initialize, set \'last\' to load last checkpoint')
-    parser.add_argument('--saved_path', type=str, default='firstThinking/')
+    parser.add_argument('--saved_path', type=str, default='second-loss/')
     parser.add_argument('--debug', type=boolean_string, default=False, help='whether visualize the predicted boxes of trainging, '
                                                                   'the output images will be in test/')
 
@@ -107,22 +106,24 @@ def train(opt):
                        'shuffle': True,
                        'drop_last': True,
                        'collate_fn': collater,
-                       'num_workers': opt.num_workers}
+                       'num_workers': opt.num_workers,
+                       'pin_memory': True}
 
     val_params = {'batch_size': opt.batch_size,
                   'shuffle': False,
                   'drop_last': True,
                   'collate_fn': collater,
-                  'num_workers': opt.num_workers}
+                  'num_workers': opt.num_workers, 
+                  'pin_memory': True}
 
     input_sizes = [512, 640, 768, 896, 1024, 1280, 1280, 1536]
-    training_set = LoadImgsAnnots(root_dir=os.path.join(opt.data_path, params.project_name), path='../coco/train.names', set=params.train_set,
+    training_set = CocoDataset(root_dir=os.path.join(opt.data_path, params.project_name), path='../coco/train.names', set=params.train_set,
                                transform=transforms.Compose([Normalizer(mean=params.mean, std=params.std),
                                                              Augmenter(),
                                                              Resizer(input_sizes[opt.compound_coef])]))
     training_generator = DataLoader(training_set, **training_params)
 
-    val_set = LoadImgsAnnots(root_dir=os.path.join(opt.data_path, params.project_name), path='../coco/val.names', set=params.val_set,
+    val_set = CocoDataset(root_dir=os.path.join(opt.data_path, params.project_name), path='../coco/val.names', set=params.val_set,
                           transform=transforms.Compose([Normalizer(mean=params.mean, std=params.std),
                                                         Resizer(input_sizes[opt.compound_coef])]))
     val_generator = DataLoader(val_set, **val_params)
@@ -191,12 +192,13 @@ def train(opt):
             if use_sync_bn:
                 patch_replication_callback(model)
 
-    if opt.optim == 'adamw':
-        optimizer = torch.optim.AdamW(model.parameters(), opt.lr)
-    else:
-        optimizer = torch.optim.SGD(model.parameters(), opt.lr, momentum=0.9, nesterov=True)
+    # if opt.optim == 'adamw':
+    #     optimizer = torch.optim.AdamW(model.parameters(), opt.lr)
+    # else:
+    optimizer = torch.optim.SGD(model.parameters(), opt.lr, momentum=0.9, nesterov=True)
 
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [40, 50, 70], gamma=0.1, last_epoch=-1)
+    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=1, verbose=True)
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [30, 60], gamma=0.1, last_epoch=-1)
 
     epoch = 0
     best_loss = 1e5
@@ -264,7 +266,8 @@ def train(opt):
                     print('[Error]', traceback.format_exc())
                     print(e)
                     continue
-            scheduler.step()
+           
+            scheduler.step(np.mean(epoch_loss))
 
             # if epoch % opt.val_interval == 0:
             #     model.eval()
