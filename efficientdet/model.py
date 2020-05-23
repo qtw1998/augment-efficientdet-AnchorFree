@@ -5,7 +5,7 @@ from mmcv.cnn import ConvModule, Scale, bias_init_with_prob, normal_init
 from efficientnet import EfficientNet as EffNet
 from efficientnet.utils import MemoryEfficientSwish, Swish
 from efficientnet.utils_extra import Conv2dStaticSamePadding, MaxPool2dStaticSamePadding
-
+from mmdet.core import distance2bbox, force_fp32, multi_apply, multiclass_nms
 
 def nms(dets, thresh):
     return nms_torch(dets[:, :4], dets[:, 4], thresh)
@@ -17,12 +17,14 @@ class DetHead(nn.Module):
                     strides=(4, 8, 16, 32, 64)):
         super(DetHead, self).__init__()
         self.num_classes = num_classes
-        self.cls_out_channels = num_classes
+        # self.cls_out_channels = num_classes
         self.in_channels = in_channels
         self.feat_channels = feat_channels
         self.stacked_convs = stacked_convs
         self.strides = strides
         self.norm_cfg = dict(type='GN', num_groups=32, requires_grad=True),
+        self._init_layers()
+
     def _init_layers(self):
         self.cls_convs = nn.ModuleList()
         self.reg_convs = nn.ModuleList()
@@ -47,8 +49,29 @@ class DetHead(nn.Module):
                 ConvModule(
                     c,
                     self.feat_channels,
+                    3,
+                    stride = 1, 
+                    padding = 1, 
+                    normal_cfg = self.norm_cfg,
+                    bias = self.norm_cfg is None
                 )
             )
+        
+        self.fcos_cls = nn.Conv2d(self.feat_channels, self.num_classes, 3, padding=1)
+        self.fcos_reg = nn.Conv2d(self.feat_channels, 4, 3, padding=1) # *l, *r, *t, *b
+        self.fcos_centerness = nn.Conv2d(self.feat_channels, 1, 3, padding=1) # criterion
+        self.scales = nn.ModuleList([Scale(1.0) for _ in self.strides]) # [4, 8, 16, 32, 64]
+
+    def forward(self, feats):
+        return multi_apply(self.forward_single_scale, feats, self.scales)
+
+    def forward_single_scale(self, x, scale):
+        cls_feat = x
+        reg_feat = x
+
+        for cls_layer in self.cls_convs:
+            cls_feat = cls_layer(x)
+            
 
 class SeparableConvBlock(nn.Module):
     """
