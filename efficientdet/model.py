@@ -11,6 +11,19 @@ def nms(dets, thresh):
     return nms_torch(dets[:, :4], dets[:, 4], thresh)
 
 
+class Head(nn.Module):
+    
+    def __init__(self, num_classes, in_channels, feat_channels=88, stacked_convs=4, 
+                    strides=(4, 8, 16, 32, 64)):
+        super(Head, self).__init__()
+        self.num_classes = num_classes
+        self.cls_out_channels = num_classes
+        self.in_channels = in_channels
+        self.feat_channels = feat_channels
+        self.stacked_convs = stacked_convs
+        self.strides = strides
+        
+
 class SeparableConvBlock(nn.Module):
     """
     created by Zylo117
