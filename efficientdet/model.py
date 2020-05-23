@@ -96,7 +96,10 @@ class DetHead(nn.Module):
 
     def _get_points_single(self, featmap_size, stride, dtype, device):
         h, w = featmap_size
+        x_axes_arange = torch.arange(0, w * stride, stride, dtype=dtype, device=device)
+        y_axes_arange = torch.arange(0, h * stride, stride, dtype=dtype, device=device)
         
+
 
 class SeparableConvBlock(nn.Module):
     """
