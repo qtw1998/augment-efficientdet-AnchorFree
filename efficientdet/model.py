@@ -82,6 +82,22 @@ class DetHead(nn.Module):
 
         return cls_score, bbox_pred, centerness
 
+
+    def get_points(self, featmap_sizes, dtype, device):
+        """ Get points as to feature map sizes with original axes
+        Args:
+            featmap_sizes: MULTIPLE-level feature map sizes
+        """
+        multipleLevel_points = []
+        for i in range(len(featmap_sizes)):
+            multipleLevel_points.append(self._get_points_single(featmap_sizes[i], 
+                                            self.strides[i], dtype, device))
+        return multipleLevel_points
+
+    def _get_points_single(self, featmap_size, stride, dtype, device):
+        h, w = featmap_size
+        
+
 class SeparableConvBlock(nn.Module):
     """
     created by Zylo117
