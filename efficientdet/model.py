@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torch
 from torchvision.ops.boxes import nms as nms_torch
-
+from mmcv.cnn import ConvModule, Scale, bias_init_with_prob, normal_init
 from efficientnet import EfficientNet as EffNet
 from efficientnet.utils import MemoryEfficientSwish, Swish
 from efficientnet.utils_extra import Conv2dStaticSamePadding, MaxPool2dStaticSamePadding
@@ -11,18 +11,41 @@ def nms(dets, thresh):
     return nms_torch(dets[:, :4], dets[:, 4], thresh)
 
 
-class Head(nn.Module):
+class DetHead(nn.Module):
     
     def __init__(self, num_classes, in_channels, feat_channels=88, stacked_convs=4, 
                     strides=(4, 8, 16, 32, 64)):
-        super(Head, self).__init__()
+        super(DetHead, self).__init__()
         self.num_classes = num_classes
         self.cls_out_channels = num_classes
         self.in_channels = in_channels
         self.feat_channels = feat_channels
         self.stacked_convs = stacked_convs
         self.strides = strides
-        
+        self.norm_cfg = dict(type='GN', num_groups=32, requires_grad=True),
+    def _init_layers(self):
+        self.cls_convs = nn.ModuleList()
+        self.reg_convs = nn.ModuleList()
+
+        for i in range(self.stacked_convs): # 4 * convs
+            c = self.in_channels if i == 0 else self.feat_channels # d1: 88
+            # classification convolutional layers
+            # waiting add....
+            self.cls_convs.append(
+                ConvModule(
+                    c,                  # input channels
+                    self.feat_channels, # output channels
+                    3,                  # 3 x 3 kernel size
+                    stride = 1, 
+                    padding = 1,
+                    norm_cfg = self.norm_cfg,
+                    bias = self.norm_cfg is None 
+                )
+            )
+
+            self.reg_convs.append(
+
+            )
 
 class SeparableConvBlock(nn.Module):
     """
