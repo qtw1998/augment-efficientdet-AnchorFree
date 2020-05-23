@@ -78,7 +78,9 @@ class DetHead(nn.Module):
         for reg_layer in self.reg_convs:
             reg_feat = reg_layer(reg_layer)
             # regression elems: *l, *r, *t, *b
-            bbox_pred = scale(self.fcos_reg(reg_feat)).float().exp()
+            bbox_pred = scale(self.fcos_reg(reg_feat)).float().exp() # scale the bbox_pred of different level
+
+        return cls_score, bbox_pred, centerness
 
 class SeparableConvBlock(nn.Module):
     """
