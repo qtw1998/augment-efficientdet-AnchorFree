@@ -34,7 +34,7 @@ class DetHead(nn.Module):
             self.cls_convs.append(
                 ConvModule(
                     c,                  # input channels
-                    self.feat_channels, # output channels
+                    self.feat_channels, # output channels KEEP SAME INPUT & OUTPUT SIZE
                     3,                  # 3 x 3 kernel size
                     stride = 1, 
                     padding = 1,
@@ -44,7 +44,10 @@ class DetHead(nn.Module):
             )
 
             self.reg_convs.append(
-
+                ConvModule(
+                    c,
+                    self.feat_channels,
+                )
             )
 
 class SeparableConvBlock(nn.Module):
