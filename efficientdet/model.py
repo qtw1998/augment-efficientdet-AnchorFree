@@ -82,6 +82,19 @@ class DetHead(nn.Module):
 
         return cls_score, bbox_pred, centerness
 
+    def loss(self, cls_scores, bbox_preds, centernesses):
+        """Calculate loss of boxNet
+        
+        """
+        assert len(cls_scores) == len(bbox_preds) == len(centernesses), \
+            "mismatching of cls_scores, bbox_preds, centernesses."
+        featmap_sizes = [featmap.shape for featmap in cls_scores] # default equal 
+        
+
+
+
+
+    
 
     def get_points(self, featmap_sizes, dtype, device):
         """ Get points as to feature map sizes with original axes
@@ -99,7 +112,10 @@ class DetHead(nn.Module):
         x_axes_arange = torch.arange(0, w * stride, stride, dtype=dtype, device=device)
         y_axes_arange = torch.arange(0, h * stride, stride, dtype=dtype, device=device)
         
-
+        x, y = torch.meshgrid(x_axes_arange, y_axes_arange)
+        axes_points = torch.stack((x.reshape(-1), y.reshape(-1)), dim = 1) + stride // 2 # start point
+        
+        return axes_points
 
 class SeparableConvBlock(nn.Module):
     """
