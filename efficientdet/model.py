@@ -18,7 +18,7 @@ class DetHead(nn.Module):
                     strides=(4, 8, 16, 32, 64)):
         super(DetHead, self).__init__()
         self.num_classes = num_classes
-        # self.cls_out_channels = num_classes
+        self.cls_out_channels = num_classes
         self.in_channels = in_channels
         self.feat_channels = feat_channels
         self.stacked_convs = stacked_convs
@@ -26,7 +26,8 @@ class DetHead(nn.Module):
         self.regress_ranges = ((-1, 64), (64, 128), (128, 256), (256, 512),(512, INF))
         self.norm_cfg = dict(type='GN', num_groups=32, requires_grad=True)
         self.center_sampling = True
-        self.center_sample_radius = 1.5,
+        self.center_sample_radius = 1.5
+        self.background_label = -1
         self._init_layers()
 
     def _init_layers(self):
@@ -99,6 +100,24 @@ class DetHead(nn.Module):
         all_level_points = self.get_points(featmap_sizes, bbox_preds[0].dtype, bbox_preds[0].device)
         # 
         labels, bbox_targets = self.get_targets(all_level_points, gt_bboxes, gt_labels)
+        # [batch_size, channel, height, width] -> channel last
+        flatten_cls_scores = [
+            cls_score.permute(0, 2, 3, 1).reshape(-1, self.cls_out_channels) # cls_out_channels = num_classes
+            for cls_score in cls_scores
+        ]
+        flatten_bbox_preds = [
+            bbox_pred.permute(0, 2, 3, 1).reshape(-1, 4)
+            for bbox_pred in bbox_preds
+        ]
+        flatten_centerness = [
+            centerness.permute(0, 2, 3, 1).reshape(-1)
+            for centerness in centernesses
+        ]
+        # 继而将flatten的各个level的tensor拼接起来
+        flatten_cls_scores = torch.cat(flatten_cls_scores)
+        flatten_bbox_preds = torch.cat(flatten_bbox_preds)
+        flatten_centerness = torch.cat(flatten_centerness)
+        
 
 
     def get_targets(self, points, gt_bboxes_one_batch, gt_labels_one_batch):
@@ -117,7 +136,7 @@ class DetHead(nn.Module):
         num_points_list = [center.size(0) for center in points]
         # Get one batch results(labels + targets of lrtb)
         labels_list, bbox_targets_list = multi_apply(
-            self.target_single, gt_bboxes_one_batch, gt_labels_one_batch,
+            self._get_target_single, gt_bboxes_one_batch, gt_labels_one_batch,
             concat_points, concat_regress_ranges, num_points_list
         )
         # points in featuer maps are centres of affined bbox 代表每个level里anchor点的数目
@@ -125,11 +144,22 @@ class DetHead(nn.Module):
         # 根据每个level里anchor点的数目拆分每张图的label
         # labels_list每个元素是当前图的每个level里的每个点的标签
         labels_list = [label_list.split(num_anchorPoints_perLevel, 0) \
-                                        for label_list in labels_list]
-        
-
-        
-
+                                        for label_list in labels_list]    
+        # split to per img, per level
+        labels_list = [labels.split(num_points, 0) for labels in labels_list]
+        bbox_targets_list = [
+            bbox_targets.split(num_points, 0)
+            for bbox_targets in bbox_targets_list
+        ]
+        # concat each level labels & bbox_targets
+        concat_level_labels, concat_level_bbox_targets = [], []
+        for i in range(num_levels):
+            concat_level_labels.append(
+                torch.cat([labels[i] for labels in labels_list]))
+            concat_level_bbox_targets.append(
+                torch.cat(
+                    [bbox_targets[i] for bbox_targets in bbox_targets_list]))
+        return concat_level_labels, concat_level_bbox_targets
 
     def _get_target_single(self, gt_bboxes, gt_labels, points, regress_ranges, num_points_per_level):
         """ Each img processing
@@ -160,7 +190,7 @@ class DetHead(nn.Module):
         xs, ys = points[:, 0], points[:, 1]
         xs = xs[:, None].expand(num_points, num_gts)
         ys = ys[:, None].expand(num_points, num_gts) # shape: [num_points，num_gts]
-        
+
         # 每个点和每个框之间的上下左右的差值
         left = xs - gt_bboxes[..., 0]
         right = gt_bboxes[..., 2] - xs
@@ -169,7 +199,7 @@ class DetHead(nn.Module):
         # bbox_targets ↓ shape: [num_points, num_gts，4]
         bbox_targets = torch.stack((left, top, right, bottom), -1)
 
-        if self.center_sampling:
+        if self.center_sampling: # idea: hit in the gt
             # Conditional Convolutions for Instance Segmentation
             # https://arxiv.org/abs/2003.05664
             # If the mapped location falls in thecenter region of an instance, 
@@ -203,28 +233,40 @@ class DetHead(nn.Module):
                                              gt_bboxes[..., 2], x_maxs)
             center_gts[..., 3] = torch.where(y_maxs > gt_bboxes[..., 3],
                                              gt_bboxes[..., 3], y_maxs)
-
-
-
-
-
-
-        # 找到（l,r,t,b）中最小的，如果最小的大于０，那么这个点肯定在对应的gt框里面
-        inside_gt_bbox_mask = bbox_targets.min(-1)[0] > 0
-        areas[inside_gt_bbox_mask == 0] = INF # 将框外面的点对应的area置为无穷
-
+           
+            # xs, ys AS the centre of "anchor centre"
+            # not real "anchor" -> points
+            points_center2left = xs -center_gts[..., 0]
+            points_center2right = center_gts[..., 2] - xs
+            points_center2top = ys - center_gts[..., 1]
+            points_center2bottom = center_gts[..., 3] - ys
+            center_bbox = torch.stack(
+                (points_center2left, points_center2right, points_center2top, points_center2bottom), -1)
+            
+            inside_gt_bbox_mask = center_bbox.min(-1)[0] > 0
+        else:
+            # 找到（l,r,t,b）中最小的，如果最小的大于０，那么这个点肯定在对应的gt框里面
+            inside_gt_bbox_mask = bbox_targets.min(-1)[0] > 0
+        
+        # idea: solve ambigious samples 
         # 找到（l,r,t,b）中最大的，如果最大的满足范围约束
         max_regress_distance = bbox_targets.max(-1)[0]
         inside_regress_range = (
             max_regress_distance >= regress_ranges[..., 0]) & (
                 max_regress_distance <= regress_ranges[..., 1])
+
+        areas[inside_gt_bbox_mask == 0] = INF # 将框外面的点对应的area置为无穷
         areas[inside_regress_range == 0] = INF # 将不满足范围约束的也置为无穷
+
+        # CUT NO-HITTING & CUT OUT-REGRESSION-RANGES
+        # STILL HAVE alternative choice of diff 『gts』
+        # choose the one with minimal area
         # 找到每个点对应的面积最小的gt框
         min_area, min_area_inds = areas.min(dim = 1) # min_area shape: [num_points, ]
         # ↓labels shape: [num_gts, ] 
         labels = gt_labels[min_area_inds] # shape: [num_points, ]
         # areas[inside_gt_bbox_mask == 0] = INF # 将框外面的点对应的area置为无穷
-        labels[min_area == INF] = 0 # 把负样本置０
+        labels[min_area == INF] = self.background_label # 把负样本置背景值
         bbox_targets = bbox_targets[range(num_points), min_area_inds] # 正样本提取 shape: [num_points, 4]
 
         return labels, bbox_targets # labels 和 bbox_targets 是配套的
