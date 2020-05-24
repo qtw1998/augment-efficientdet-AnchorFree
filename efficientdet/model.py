@@ -129,8 +129,10 @@ class DetHead(nn.Module):
         y_axes_arange = torch.arange(0, h * stride, stride, dtype=dtype, device=device)
         
         x, y = torch.meshgrid(x_axes_arange, y_axes_arange)
+        # a location(x,y)on thefeature maps can be mapped back onto the input image as(s/2 + xs, s/2 + ys)
         axes_points = torch.stack((x.reshape(-1), y.reshape(-1)), dim = 1) + stride // 2 # start point
-        
+        # If the mapped location falls in thecenter region of an instance, 
+        # the location is considered to beresponsible for the instance. 
         return axes_points
 
 class SeparableConvBlock(nn.Module):
