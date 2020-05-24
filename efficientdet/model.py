@@ -98,7 +98,7 @@ class DetHead(nn.Module):
         featmap_sizes = [featmap.shape for featmap in cls_scores] # default equal 
         # all points on feature maps | meshgrid of axes point of different scales
         all_level_points = self.get_points(featmap_sizes, bbox_preds[0].dtype, bbox_preds[0].device)
-        # 
+        # △ get postive samples
         labels, bbox_targets = self.get_targets(all_level_points, gt_bboxes, gt_labels)
         # [batch_size, channel, height, width] -> channel last
         flatten_cls_scores = [
@@ -114,10 +114,24 @@ class DetHead(nn.Module):
             for centerness in centernesses
         ]
         # 继而将flatten的各个level的tensor拼接起来
-        flatten_cls_scores = torch.cat(flatten_cls_scores)
+        flatten_cls_scores = torch.cat(flatten_cls_scores) # flatten_cls_scores shape: []
         flatten_bbox_preds = torch.cat(flatten_bbox_preds)
         flatten_centerness = torch.cat(flatten_centerness)
+
+        flatten_labels = torch.cat(labels) 
+        flatten_bbox_targets = torch.cat(bbox_targets) 
+
+        num_imgs = cls_scores[0].size(0)
+        # repeat points to align with bbox_preds
+        flatten_points = torch.cat(
+            [points.repeat(num_imgs, 1) for points in all_level_points])
+        # get positive samples
+        positive_idx = flatten_labels.nonzero().reshape(-1) # 'nonzero' return: idx
+        num_positive = len(positive_idx)
         
+
+        
+
 
 
     def get_targets(self, points, gt_bboxes_one_batch, gt_labels_one_batch):
