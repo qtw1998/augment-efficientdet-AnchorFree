@@ -26,6 +26,7 @@ class DetHead(nn.Module):
         self.regress_ranges = ((-1, 64), (64, 128), (128, 256), (256, 512),(512, INF))
         self.norm_cfg = dict(type='GN', num_groups=32, requires_grad=True)
         self.center_sampling = True
+        self.center_sample_radius = 1.5,
         self._init_layers()
 
     def _init_layers(self):
@@ -112,10 +113,12 @@ class DetHead(nn.Module):
         # concatenate points and ranges 
         concat_regress_ranges = torch.cat(expanded_regress_ranges, dim = 0)
         concat_points = torch.cat(points, dim = 0)
+        # EACH level points would be saved - LIST
+        num_points_list = [center.size(0) for center in points]
         # Get one batch results(labels + targets of lrtb)
         labels_list, bbox_targets_list = multi_apply(
             self.target_single, gt_bboxes_one_batch, gt_labels_one_batch,
-            concat_points, concat_regress_ranges
+            concat_points, concat_regress_ranges, num_points_list
         )
         # points in featuer maps are centres of affined bbox 代表每个level里anchor点的数目
         num_anchorPoints_perLevel = [center.size(0) for center in points] 
@@ -128,7 +131,7 @@ class DetHead(nn.Module):
         
 
 
-    def _get_target_single(self, gt_bboxes, gt_labels, points, regress_ranges):
+    def _get_target_single(self, gt_bboxes, gt_labels, points, regress_ranges, num_points_per_level):
         """ Each img processing
         Args: 
             gt_bboxes, gt_labels: ground truth 
@@ -152,10 +155,12 @@ class DetHead(nn.Module):
         # ↑ input ranges shape: [num_points, 2] | ↑ ranges shape: [num_points, num_gts, 4]
         # gt_bboxes input shape: [num_gts, 4]
         gt_bboxes = gt_bboxes[None].expand(num_points, num_gts, 4)
-
+        
+        # xs, ys: EACH POINTS ON feature map
         xs, ys = points[:, 0], points[:, 1]
         xs = xs[:, None].expand(num_points, num_gts)
         ys = ys[:, None].expand(num_points, num_gts) # shape: [num_points，num_gts]
+        
         # 每个点和每个框之间的上下左右的差值
         left = xs - gt_bboxes[..., 0]
         right = gt_bboxes[..., 2] - xs
@@ -173,7 +178,33 @@ class DetHead(nn.Module):
             # The center re-gion is defined as the box (cx−rs,cy−rs,cx+rs,cy+rs)
             # 's' is the down-sampling ratio of Pi and 'r' is a constant scalar 
             radius = self.center_sample_radius
+            center_xs = (gt_bboxes[..., 0] + gt_bboxes[..., 2]) / 2 
+            center_ys = (gt_bboxes[..., 1] + gt_bboxes[..., 3]) / 2
+            center_gts = torch.zeros_like(gt_bboxes) # gt_bboxes shape: [num_points, num_gts, 4]
+            stride = center_xs.new_zeros(center_xs.shape)
+
+            level_start = 0
+            # projects points on current feature level back to original sizes
+            # Aim of this block: get full scales strides with radius
+            for level_idx, num_points_level in enumerate(num_points_per_level):
+                level_end  = level_start + num_points_level
+                stride[level_start:level_end] = self.strides[level_idx] * radius
+                level_start = level_end
             
+            x_mins = center_xs - stride
+            y_mins = center_ys - stride
+            x_maxs = center_xs + stride
+            y_maxs = center_ys + stride
+            center_gts[..., 0] = torch.where(x_mins > gt_bboxes[..., 0],
+                                             x_mins, gt_bboxes[..., 0])
+            center_gts[..., 1] = torch.where(y_mins > gt_bboxes[..., 1],
+                                             y_mins, gt_bboxes[..., 1])
+            center_gts[..., 2] = torch.where(x_maxs > gt_bboxes[..., 2],
+                                             gt_bboxes[..., 2], x_maxs)
+            center_gts[..., 3] = torch.where(y_maxs > gt_bboxes[..., 3],
+                                             gt_bboxes[..., 3], y_maxs)
+
+
 
 
 
