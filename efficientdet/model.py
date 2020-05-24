@@ -25,6 +25,7 @@ class DetHead(nn.Module):
         self.strides = strides
         self.regress_ranges = ((-1, 64), (64, 128), (128, 256), (256, 512),(512, INF))
         self.norm_cfg = dict(type='GN', num_groups=32, requires_grad=True)
+        self.center_sampling = True
         self._init_layers()
 
     def _init_layers(self):
@@ -99,7 +100,7 @@ class DetHead(nn.Module):
         labels, bbox_targets = self.get_targets(all_level_points, gt_bboxes, gt_labels)
 
 
-    def get_targets(self, points, gt_bboxes, gt_labels):
+    def get_targets(self, points, gt_bboxes_one_batch, gt_labels_one_batch):
         assert len(points) == len(self.regress_ranges), \
             "make sure if the same nums of scales ranges" 
         num_levels = len(points) # different levels(scales)
@@ -111,17 +112,43 @@ class DetHead(nn.Module):
         # concatenate points and ranges 
         concat_regress_ranges = torch.cat(expanded_regress_ranges, dim = 0)
         concat_points = torch.cat(points, dim = 0)
+        # Get one batch results(labels + targets of lrtb)
+        labels_list, bbox_targets_list = multi_apply(
+            self.target_single, gt_bboxes_one_batch, gt_labels_one_batch,
+            concat_points, concat_regress_ranges
+        )
+        # points in featuer maps are centres of affined bbox 代表每个level里anchor点的数目
+        num_anchorPoints_perLevel = [center.size(0) for center in points] 
+        # 根据每个level里anchor点的数目拆分每张图的label
+        # labels_list每个元素是当前图的每个level里的每个点的标签
+        labels_list = [label_list.split(num_anchorPoints_perLevel, 0) \
+                                        for label_list in labels_list]
         
 
-    def target_single(self, gt_bboxes, gt_labels, points, regress_ranges):
-        num_points = points.size(0)
+        
+
+
+    def _get_target_single(self, gt_bboxes, gt_labels, points, regress_ranges):
+        """ Each img processing
+        Args: 
+            gt_bboxes, gt_labels: ground truth 
+            points: points in feature maps
+            regress_ranges: confine the range of positive points 
+        Return:
+            labels & lrtb of ONE img
+        Modified by: Daivd Qiao
+        """
+        num_points = points.size(0) # diff from GET_TARGETS: num_levels - len(points)
         num_gts = gt_labels.size(0)
-        # if num_gts == 0: ...
-        areas = (gt_bboxes[:, 2] - gt_bboxes[:, 0] + 1) * ( # gt_bboxes shape: [num_gts, 4]
-            gt_bboxes[:, 3] - gt_bboxes[:, 1] + 1) # ←areas shape: [num_gts, ]
+        if num_gts == 0:
+            return gt_labels.new_full((num_points, ), self.background_label), \
+                   gt_bboxes.new_zeros((num_points, 4))
+
+        areas = (gt_bboxes[:, 2] - gt_bboxes[:, 0]) * ( # gt_bboxes shape: [num_gts, 4]
+            gt_bboxes[:, 3] - gt_bboxes[:, 1]) # ←areas shape: [num_gts, ]
         
         areas = areas[None].repeat(num_points, 1) # ← areas shape: [num_points, num_gts]
-        regress_ranges = regress_ranges[:, None, :].expand(num_points, num_gts, 4) 
+        regress_ranges = regress_ranges[:, None, :].expand(num_points, num_gts, 2) 
         # ↑ input ranges shape: [num_points, 2] | ↑ ranges shape: [num_points, num_gts, 4]
         # gt_bboxes input shape: [num_gts, 4]
         gt_bboxes = gt_bboxes[None].expand(num_points, num_gts, 4)
@@ -136,6 +163,20 @@ class DetHead(nn.Module):
         bottom = gt_bboxes[..., 3] - ys
         # bbox_targets ↓ shape: [num_points, num_gts，4]
         bbox_targets = torch.stack((left, top, right, bottom), -1)
+
+        if self.center_sampling:
+            # Conditional Convolutions for Instance Segmentation
+            # https://arxiv.org/abs/2003.05664
+            # If the mapped location falls in thecenter region of an instance, 
+            # the location is considered to beresponsible for the instance. 
+            # Any locations outside the cen-ter regions are labeled as negative samples. 
+            # The center re-gion is defined as the box (cx−rs,cy−rs,cx+rs,cy+rs)
+            # 's' is the down-sampling ratio of Pi and 'r' is a constant scalar 
+            radius = self.center_sample_radius
+            
+
+
+
 
         # 找到（l,r,t,b）中最小的，如果最小的大于０，那么这个点肯定在对应的gt框里面
         inside_gt_bbox_mask = bbox_targets.min(-1)[0] > 0
