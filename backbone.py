@@ -5,7 +5,7 @@ import math
 import torch
 from torch import nn
 
-from efficientdet.model import BiFPN, Regressor, Classifier, EfficientNet
+from efficientdet.model import BiFPN, EfficientNet, DetHead
 from efficientdet.utils import Anchors
 
 
@@ -33,9 +33,9 @@ class EfficientDetBackbone(nn.Module):
             6: [72, 200, 576],
             7: [72, 200, 576],
         }
-
-        num_anchors = len(self.aspect_ratios) * self.num_scales
-
+        self.num_classes = num_classes
+        # num_anchors = len(self.aspect_ratios) * self.num_scales
+        self.backbone_net = EfficientNet(self.backbone_compound_coef[compound_coef], load_weights)
         self.bifpn = nn.Sequential(
             *[BiFPN(self.fpn_num_filters[self.compound_coef],
                     conv_channel_coef[compound_coef],
@@ -43,16 +43,16 @@ class EfficientDetBackbone(nn.Module):
                     attention=True if compound_coef < 6 else False)
               for _ in range(self.fpn_cell_repeats[compound_coef])])
 
-        self.num_classes = num_classes
-        self.regressor = Regressor(in_channels=self.fpn_num_filters[self.compound_coef], num_anchors=num_anchors,
-                                   num_layers=self.box_class_repeats[self.compound_coef])
-        self.classifier = Classifier(in_channels=self.fpn_num_filters[self.compound_coef], num_anchors=num_anchors,
-                                     num_classes=num_classes,
-                                     num_layers=self.box_class_repeats[self.compound_coef])
+        self.head = DetHead(self.num_classes, self.fpn_num_filters[compound_coef])
+        # self.regressor = Regressor(in_channels=self.fpn_num_filters[self.compound_coef], num_anchors=num_anchors,
+        #                            num_layers=self.box_class_repeats[self.compound_coef])
+        # self.classifier = Classifier(in_channels=self.fpn_num_filters[self.compound_coef], num_anchors=num_anchors,
+        #                              num_classes=num_classes,
+        #                              num_layers=self.box_class_repeats[self.compound_coef])
 
-        self.anchors = Anchors(anchor_scale=self.anchor_scale[compound_coef], **kwargs)
+        # self.anchors = Anchors(anchor_scale=self.anchor_scale[compound_coef], **kwargs)
 
-        self.backbone_net = EfficientNet(self.backbone_compound_coef[compound_coef], load_weights)
+        
 
     def freeze_bn(self):
         for m in self.modules():
@@ -67,11 +67,13 @@ class EfficientDetBackbone(nn.Module):
         features = (p3, p4, p5)
         features = self.bifpn(features)
 
-        regression = self.regressor(features)
-        classification = self.classifier(features)
-        anchors = self.anchors(inputs, inputs.dtype)
+        cls_scores, bbox_preds, centernesses = self.head(features)
+        # regression = self.regressor(features)
+        # classification = self.classifier(features)
+        # anchors = self.anchors(inputs, inputs.dtype)
 
-        return features, regression, classification, anchors
+
+        return features, cls_scores, bbox_preds, centernesses
 
     def init_backbone(self, path):
         state_dict = torch.load(path)
