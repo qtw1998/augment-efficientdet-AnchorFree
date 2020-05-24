@@ -149,9 +149,13 @@ class DetHead(nn.Module):
         areas[inside_regress_range == 0] = INF # 将不满足范围约束的也置为无穷
         # 找到每个点对应的面积最小的gt框
         min_area, min_area_inds = areas.min(dim = 1) # min_area shape: [num_points, ]
+        # ↓labels shape: [num_gts, ] 
         labels = gt_labels[min_area_inds] # shape: [num_points, ]
-        labels[min_area == INF] = 0
+        # areas[inside_gt_bbox_mask == 0] = INF # 将框外面的点对应的area置为无穷
+        labels[min_area == INF] = 0 # 把负样本置０
+        bbox_targets = bbox_targets[range(num_points), min_area_inds] # 正样本提取 shape: [num_points, 4]
 
+        return labels, bbox_targets # labels 和 bbox_targets 是配套的
 
     def get_points(self, featmap_sizes, dtype, device):
         """ Get points as to feature map sizes with original axes
