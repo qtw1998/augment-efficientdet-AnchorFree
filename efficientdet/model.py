@@ -93,24 +93,65 @@ class DetHead(nn.Module):
         assert len(cls_scores) == len(bbox_preds) == len(centernesses), \
             "mismatching of cls_scores, bbox_preds, centernesses."
         featmap_sizes = [featmap.shape for featmap in cls_scores] # default equal 
-        # meshgrid of axes point of different scales
+        # all points on feature maps | meshgrid of axes point of different scales
         all_level_points = self.get_points(featmap_sizes, bbox_preds[0].dtype, bbox_preds[0].device)
-        
+        # 
         labels, bbox_targets = self.get_targets(all_level_points, gt_bboxes, gt_labels)
 
 
     def get_targets(self, points, gt_bboxes, gt_labels):
         assert len(points) == len(self.regress_ranges), \
-            "make sure if the same nums of scales ranges"
+            "make sure if the same nums of scales ranges" 
+        num_levels = len(points) # different levels(scales)
+        # expand regress ranges as the points
         expanded_regress_ranges = [   # elem               # shape
             points[i].new_tensor(self.regress_ranges)[None].expand_as(
-                points[i]) for i in range(len(points))
+                points[i]) for i in range(len(points)) # ←ranges shape: [num_levels, 2]
         ]
+        # concatenate points and ranges 
         concat_regress_ranges = torch.cat(expanded_regress_ranges, dim = 0)
+        concat_points = torch.cat(points, dim = 0)
+        
 
+    def target_single(self, gt_bboxes, gt_labels, points, regress_ranges):
+        num_points = points.size(0)
+        num_gts = gt_labels.size(0)
+        # if num_gts == 0: ...
+        areas = (gt_bboxes[:, 2] - gt_bboxes[:, 0] + 1) * ( # gt_bboxes shape: [num_gts, 4]
+            gt_bboxes[:, 3] - gt_bboxes[:, 1] + 1) # ←areas shape: [num_gts, ]
+        
+        areas = areas[None].repeat(num_points, 1) # ← areas shape: [num_points, num_gts]
+        regress_ranges = regress_ranges[:, None, :].expand(num_points, num_gts, 4) 
+        # ↑ input ranges shape: [num_points, 2] | ↑ ranges shape: [num_points, num_gts, 4]
+        # gt_bboxes input shape: [num_gts, 4]
+        gt_bboxes = gt_bboxes[None].expand(num_points, num_gts, 4)
 
+        xs, ys = points[:, 0], points[:, 1]
+        xs = xs[:, None].expand(num_points, num_gts)
+        ys = ys[:, None].expand(num_points, num_gts) # shape: [num_points，num_gts]
+        # 每个点和每个框之间的上下左右的差值
+        left = xs - gt_bboxes[..., 0]
+        right = gt_bboxes[..., 2] - xs
+        top = ys - gt_bboxes[..., 1]
+        bottom = gt_bboxes[..., 3] - ys
+        # bbox_targets ↓ shape: [num_points, num_gts，4]
+        bbox_targets = torch.stack((left, top, right, bottom), -1)
 
-    
+        # 找到（l,r,t,b）中最小的，如果最小的大于０，那么这个点肯定在对应的gt框里面
+        inside_gt_bbox_mask = bbox_targets.min(-1)[0] > 0
+        areas[inside_gt_bbox_mask == 0] = INF # 将框外面的点对应的area置为无穷
+
+        # 找到（l,r,t,b）中最大的，如果最大的满足范围约束
+        max_regress_distance = bbox_targets.max(-1)[0]
+        inside_regress_range = (
+            max_regress_distance >= regress_ranges[..., 0]) & (
+                max_regress_distance <= regress_ranges[..., 1])
+        areas[inside_regress_range == 0] = INF # 将不满足范围约束的也置为无穷
+        # 找到每个点对应的面积最小的gt框
+        min_area, min_area_inds = areas.min(dim = 1) # min_area shape: [num_points, ]
+        labels = gt_labels[min_area_inds] # shape: [num_points, ]
+        labels[min_area == INF] = 0
+
 
     def get_points(self, featmap_sizes, dtype, device):
         """ Get points as to feature map sizes with original axes
