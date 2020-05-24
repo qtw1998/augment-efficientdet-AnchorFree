@@ -6,6 +6,7 @@ from efficientnet import EfficientNet as EffNet
 from efficientnet.utils import MemoryEfficientSwish, Swish
 from efficientnet.utils_extra import Conv2dStaticSamePadding, MaxPool2dStaticSamePadding
 from mmdet.core import distance2bbox, force_fp32, multi_apply, multiclass_nms
+INF = 1e8
 
 def nms(dets, thresh):
     return nms_torch(dets[:, :4], dets[:, 4], thresh)
@@ -22,7 +23,8 @@ class DetHead(nn.Module):
         self.feat_channels = feat_channels
         self.stacked_convs = stacked_convs
         self.strides = strides
-        self.norm_cfg = dict(type='GN', num_groups=32, requires_grad=True),
+        self.regress_ranges = ((-1, 64), (64, 128), (128, 256), (256, 512),(512, INF))
+        self.norm_cfg = dict(type='GN', num_groups=32, requires_grad=True)
         self._init_layers()
 
     def _init_layers(self):
@@ -64,6 +66,7 @@ class DetHead(nn.Module):
 
     def forward(self, feats):
         return multi_apply(self.forward_single_scale, feats, self.scales)
+        # cls_scores, bbox_preds, centernesses
 
     def forward_single_scale(self, x, scale):
         cls_feat = x
@@ -79,18 +82,31 @@ class DetHead(nn.Module):
             reg_feat = reg_layer(reg_layer)
             # regression elems: *l, *r, *t, *b
             bbox_pred = scale(self.fcos_reg(reg_feat)).float().exp() # scale the bbox_pred of different level
-
+            # (0, +oo)
         return cls_score, bbox_pred, centerness
 
-    def loss(self, cls_scores, bbox_preds, centernesses):
+    def loss(self, cls_scores, bbox_preds, centernesses, gt_bboxes, gt_labels):
         """Calculate loss of boxNet
-        
+        Args:
+            cls_scores, bbox_preds, centernesses: list A Series of ...
         """
         assert len(cls_scores) == len(bbox_preds) == len(centernesses), \
             "mismatching of cls_scores, bbox_preds, centernesses."
         featmap_sizes = [featmap.shape for featmap in cls_scores] # default equal 
+        # meshgrid of axes point of different scales
+        all_level_points = self.get_points(featmap_sizes, bbox_preds[0].dtype, bbox_preds[0].device)
         
+        labels, bbox_targets = self.get_targets(all_level_points, gt_bboxes, gt_labels)
 
+
+    def get_targets(self, points, gt_bboxes, gt_labels):
+        assert len(points) == len(self.regress_ranges), \
+            "make sure if the same nums of scales ranges"
+        expanded_regress_ranges = [   # elem               # shape
+            points[i].new_tensor(self.regress_ranges)[None].expand_as(
+                points[i]) for i in range(len(points))
+        ]
+        concat_regress_ranges = torch.cat(expanded_regress_ranges, dim = 0)
 
 
 
